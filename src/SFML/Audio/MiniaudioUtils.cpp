@@ -28,14 +28,11 @@
 #include <SFML/Audio/MiniaudioUtils.hpp>
 #include <SFML/Audio/SoundChannel.hpp>
 
-#include <SFML/System/Angle.hpp>
 #include <SFML/System/Err.hpp>
 #include <SFML/System/Time.hpp>
 
 #include <miniaudio.h>
 
-#include <functional>
-#include <limits>
 #include <ostream>
 
 #include <cassert>
@@ -43,95 +40,6 @@
 
 namespace sf::priv
 {
-namespace
-{
-////////////////////////////////////////////////////////////
-struct SavedSettings
-{
-    float          pitch{1.f};
-    float          pan{0.f};
-    float          volume{1.f};
-    ma_bool32      spatializationEnabled{MA_TRUE};
-    ma_vec3f       position{0.f, 0.f, 0.f};
-    ma_vec3f       direction{0.f, 0.f, -1.f};
-    float          directionalAttenuationFactor{1.f};
-    ma_vec3f       velocity{0.f, 0.f, 0.f};
-    float          dopplerFactor{1.f};
-    ma_positioning positioning{ma_positioning_absolute};
-    float          minDistance{1.f};
-    float          maxDistance{std::numeric_limits<float>::max()};
-    float          minGain{0.f};
-    float          maxGain{1.f};
-    float          rollOff{1.f};
-    float          innerAngle{degrees(360.f).asRadians()};
-    float          outerAngle{degrees(360.f).asRadians()};
-    float          outerGain{0.f};
-};
-
-
-////////////////////////////////////////////////////////////
-SavedSettings saveSettings(const ma_sound& sound)
-{
-    float innerAngle = 0;
-    float outerAngle = 0;
-    float outerGain  = 0;
-    ma_sound_get_cone(&sound, &innerAngle, &outerAngle, &outerGain);
-
-    return SavedSettings{ma_sound_get_pitch(&sound),
-                         ma_sound_get_pan(&sound),
-                         ma_sound_get_volume(&sound),
-                         ma_sound_is_spatialization_enabled(&sound),
-                         ma_sound_get_position(&sound),
-                         ma_sound_get_direction(&sound),
-                         ma_sound_get_directional_attenuation_factor(&sound),
-                         ma_sound_get_velocity(&sound),
-                         ma_sound_get_doppler_factor(&sound),
-                         ma_sound_get_positioning(&sound),
-                         ma_sound_get_min_distance(&sound),
-                         ma_sound_get_max_distance(&sound),
-                         ma_sound_get_min_gain(&sound),
-                         ma_sound_get_max_gain(&sound),
-                         ma_sound_get_rolloff(&sound),
-                         innerAngle,
-                         outerAngle,
-                         outerGain};
-}
-
-
-////////////////////////////////////////////////////////////
-void applySettings(ma_sound& sound, const SavedSettings& savedSettings)
-{
-    ma_sound_set_pitch(&sound, savedSettings.pitch);
-    ma_sound_set_pan(&sound, savedSettings.pan);
-    ma_sound_set_volume(&sound, savedSettings.volume);
-    ma_sound_set_spatialization_enabled(&sound, savedSettings.spatializationEnabled);
-    ma_sound_set_position(&sound, savedSettings.position.x, savedSettings.position.y, savedSettings.position.z);
-    ma_sound_set_direction(&sound, savedSettings.direction.x, savedSettings.direction.y, savedSettings.direction.z);
-    ma_sound_set_directional_attenuation_factor(&sound, savedSettings.directionalAttenuationFactor);
-    ma_sound_set_velocity(&sound, savedSettings.velocity.x, savedSettings.velocity.y, savedSettings.velocity.z);
-    ma_sound_set_doppler_factor(&sound, savedSettings.dopplerFactor);
-    ma_sound_set_positioning(&sound, savedSettings.positioning);
-    ma_sound_set_min_distance(&sound, savedSettings.minDistance);
-    ma_sound_set_max_distance(&sound, savedSettings.maxDistance);
-    ma_sound_set_min_gain(&sound, savedSettings.minGain);
-    ma_sound_set_max_gain(&sound, savedSettings.maxGain);
-    ma_sound_set_rolloff(&sound, savedSettings.rollOff);
-
-    ma_sound_set_cone(&sound, savedSettings.innerAngle, savedSettings.outerAngle, savedSettings.outerGain);
-}
-
-
-////////////////////////////////////////////////////////////
-void initializeDataSource(ma_data_source_base& dataSourceBase, const ma_data_source_vtable& vtable)
-{
-    // Set this object up as a miniaudio data source
-    ma_data_source_config config = ma_data_source_config_init();
-    config.vtable                = &vtable;
-
-    if (const ma_result result = ma_data_source_init(&config, &dataSourceBase); result != MA_SUCCESS)
-        err() << "Failed to initialize audio data source: " << ma_result_description(result) << std::endl;
-}
-} // namespace
 
 
 ////////////////////////////////////////////////////////////
@@ -268,28 +176,66 @@ ma_uint64 MiniaudioUtils::getFrameIndex(ma_sound& sound, Time timeOffset)
 
 
 ////////////////////////////////////////////////////////////
-void MiniaudioUtils::reinitializeSound(ma_sound& sound, const std::function<void()>& initializeFn)
+MiniaudioUtils::SavedSettings MiniaudioUtils::saveSettings(const ma_sound& sound)
 {
-    const SavedSettings savedSettings = saveSettings(sound);
-    ma_sound_uninit(&sound);
+    float innerAngle = 0;
+    float outerAngle = 0;
+    float outerGain  = 0;
+    ma_sound_get_cone(&sound, &innerAngle, &outerAngle, &outerGain);
 
-    initializeFn();
-
-    applySettings(sound, savedSettings);
+    return SavedSettings{ma_sound_get_pitch(&sound),
+                         ma_sound_get_pan(&sound),
+                         ma_sound_get_volume(&sound),
+                         ma_sound_is_spatialization_enabled(&sound),
+                         ma_sound_get_position(&sound),
+                         ma_sound_get_direction(&sound),
+                         ma_sound_get_directional_attenuation_factor(&sound),
+                         ma_sound_get_velocity(&sound),
+                         ma_sound_get_doppler_factor(&sound),
+                         ma_sound_get_positioning(&sound),
+                         ma_sound_get_min_distance(&sound),
+                         ma_sound_get_max_distance(&sound),
+                         ma_sound_get_min_gain(&sound),
+                         ma_sound_get_max_gain(&sound),
+                         ma_sound_get_rolloff(&sound),
+                         ma_sound_is_playing(&sound),
+                         ma_sound_is_looping(&sound),
+                         innerAngle,
+                         outerAngle,
+                         outerGain};
 }
 
 
 ////////////////////////////////////////////////////////////
-void MiniaudioUtils::initializeSound(const ma_data_source_vtable& vtable,
-                                     ma_data_source_base&         dataSourceBase,
-                                     ma_sound&                    sound,
-                                     const std::function<void()>& initializeFn)
+void MiniaudioUtils::applySettings(ma_sound& sound, const SavedSettings& savedSettings)
 {
-    initializeDataSource(dataSourceBase, vtable);
+    ma_sound_set_pitch(&sound, savedSettings.pitch);
+    ma_sound_set_pan(&sound, savedSettings.pan);
+    ma_sound_set_volume(&sound, savedSettings.volume);
+    ma_sound_set_spatialization_enabled(&sound, savedSettings.spatializationEnabled);
+    ma_sound_set_position(&sound, savedSettings.position.x, savedSettings.position.y, savedSettings.position.z);
+    ma_sound_set_direction(&sound, savedSettings.direction.x, savedSettings.direction.y, savedSettings.direction.z);
+    ma_sound_set_directional_attenuation_factor(&sound, savedSettings.directionalAttenuationFactor);
+    ma_sound_set_velocity(&sound, savedSettings.velocity.x, savedSettings.velocity.y, savedSettings.velocity.z);
+    ma_sound_set_doppler_factor(&sound, savedSettings.dopplerFactor);
+    ma_sound_set_positioning(&sound, savedSettings.positioning);
+    ma_sound_set_min_distance(&sound, savedSettings.minDistance);
+    ma_sound_set_max_distance(&sound, savedSettings.maxDistance);
+    ma_sound_set_min_gain(&sound, savedSettings.minGain);
+    ma_sound_set_max_gain(&sound, savedSettings.maxGain);
+    ma_sound_set_rolloff(&sound, savedSettings.rollOff);
+    ma_sound_set_looping(&sound, savedSettings.looping);
 
-    // Initialize sound structure and set default settings
-    initializeFn();
-    applySettings(sound, SavedSettings{});
+    ma_sound_set_cone(&sound, savedSettings.innerAngle, savedSettings.outerAngle, savedSettings.outerGain);
+
+    if (savedSettings.playing)
+    {
+        ma_sound_start(&sound);
+    }
+    else
+    {
+        ma_sound_stop(&sound);
+    }
 }
 
 } // namespace sf::priv

@@ -29,9 +29,11 @@
 ////////////////////////////////////////////////////////////
 #include <SFML/Audio/SoundChannel.hpp>
 
+#include <SFML/System/Angle.hpp>
+
 #include <miniaudio.h>
 
-#include <functional>
+#include <limits>
 
 
 ////////////////////////////////////////////////////////////
@@ -44,15 +46,36 @@ class Time;
 
 namespace priv::MiniaudioUtils
 {
-[[nodiscard]] ma_channel   soundChannelToMiniaudioChannel(SoundChannel soundChannel);
-[[nodiscard]] SoundChannel miniaudioChannelToSoundChannel(ma_channel soundChannel);
-[[nodiscard]] Time         getPlayingOffset(ma_sound& sound);
-[[nodiscard]] ma_uint64    getFrameIndex(ma_sound& sound, Time timeOffset);
+struct SavedSettings
+{
+    float          pitch{1.f};
+    float          pan{0.f};
+    float          volume{1.f};
+    ma_bool32      spatializationEnabled{MA_TRUE};
+    ma_vec3f       position{0.f, 0.f, 0.f};
+    ma_vec3f       direction{0.f, 0.f, -1.f};
+    float          directionalAttenuationFactor{1.f};
+    ma_vec3f       velocity{0.f, 0.f, 0.f};
+    float          dopplerFactor{1.f};
+    ma_positioning positioning{ma_positioning_absolute};
+    float          minDistance{1.f};
+    float          maxDistance{std::numeric_limits<float>::max()};
+    float          minGain{0.f};
+    float          maxGain{1.f};
+    float          rollOff{1.f};
+    ma_bool32      playing{MA_FALSE};
+    ma_bool32      looping{MA_FALSE};
+    float          innerAngle{degrees(360.f).asRadians()};
+    float          outerAngle{degrees(360.f).asRadians()};
+    float          outerGain{0.f};
+};
 
-void reinitializeSound(ma_sound& sound, const std::function<void()>& initializeFn);
-void initializeSound(const ma_data_source_vtable& vtable,
-                     ma_data_source_base&         dataSourceBase,
-                     ma_sound&                    sound,
-                     const std::function<void()>& initializeFn);
+[[nodiscard]] ma_channel    soundChannelToMiniaudioChannel(SoundChannel soundChannel);
+[[nodiscard]] SoundChannel  miniaudioChannelToSoundChannel(ma_channel soundChannel);
+[[nodiscard]] Time          getPlayingOffset(ma_sound& sound);
+[[nodiscard]] ma_uint64     getFrameIndex(ma_sound& sound, Time timeOffset);
+[[nodiscard]] SavedSettings saveSettings(const ma_sound& sound);
+void                        applySettings(ma_sound& sound, const SavedSettings& savedSettings);
+
 } // namespace priv::MiniaudioUtils
 } // namespace sf

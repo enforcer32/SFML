@@ -49,11 +49,27 @@ struct SoundStream::Impl
     Impl(SoundStream* ownerPtr) : owner(ownerPtr)
     {
         static constexpr ma_data_source_vtable vtable{read, seek, getFormat, getCursor, getLength, setLooping, /* flags */ 0};
-        priv::MiniaudioUtils::initializeSound(vtable, dataSourceBase, sound, [this] { initialize(); });
+
+        // Set this object up as a miniaudio data source
+        ma_data_source_config config = ma_data_source_config_init();
+        config.vtable                = &vtable;
+
+        if (const ma_result result = ma_data_source_init(&config, &dataSourceBase); result != MA_SUCCESS)
+            err() << "Failed to initialize audio data source: " << ma_result_description(result) << std::endl;
+
+        // Initialize sound structure and set default settings
+        initialize();
+        priv::MiniaudioUtils::applySettings(sound, savedSettings);
+
+        resourceEntryIter = priv::AudioDevice::registerResource(
+            this,
+            [](void* ptr) { static_cast<Impl*>(ptr)->deinitialize(); },
+            [](void* ptr) { static_cast<Impl*>(ptr)->reinitialize(); });
     }
 
     ~Impl()
     {
+        priv::AudioDevice::unregisterResource(resourceEntryIter);
         ma_sound_uninit(&sound);
         ma_node_uninit(&effectNode, nullptr);
         ma_data_source_uninit(&dataSourceBase);
@@ -138,14 +154,17 @@ struct SoundStream::Impl
         }
     }
 
+    void deinitialize()
+    {
+        savedSettings = priv::MiniaudioUtils::saveSettings(sound);
+        ma_sound_uninit(&sound);
+        ma_node_uninit(&effectNode, nullptr);
+    }
+
     void reinitialize()
     {
-        priv::MiniaudioUtils::reinitializeSound(sound,
-                                                [this]
-                                                {
-                                                    ma_node_uninit(&effectNode, nullptr);
-                                                    initialize();
-                                                });
+        initialize();
+        priv::MiniaudioUtils::applySettings(sound, savedSettings);
     }
 
     void processEffect(const float** framesIn, ma_uint32& frameCountIn, float** framesOut, ma_uint32& frameCountOut) const
@@ -362,6 +381,8 @@ struct SoundStream::Impl
     bool                      streaming{true};         //!< True if we are still streaming samples from the source
     Status                    status{Status::Stopped}; //!< The status
     EffectProcessor           effectProcessor;         //!< The effect processor
+    priv::AudioDevice::ResourceEntryIter resourceEntryIter; //!< Iterator to the resource entry registered with the AudioDevice
+    priv::MiniaudioUtils::SavedSettings savedSettings; //!< Saved settings used to restore ma_sound state in case we need to recreate it
 };
 
 
@@ -383,6 +404,7 @@ void SoundStream::initialize(unsigned int channelCount, unsigned int sampleRate,
     m_impl->channelMap       = channelMap;
     m_impl->samplesProcessed = 0;
 
+    m_impl->deinitialize();
     m_impl->reinitialize();
 }
 
